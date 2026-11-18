@@ -1,62 +1,62 @@
-# Memory Guard
+# 内存守护 Memory Guard
 
-A single-file memory monitor for Windows. It shows physical memory usage, frees working sets on demand, and closes the popup / promo processes that some desktop apps spawn in the background.
+Windows 上的单文件内存监控工具。看物理内存占用、按需回收工作集、关掉部分桌面软件在后台开的推广和弹窗进程。
 
-Pure standard library: `ctypes` against Win32, `tkinter` for the UI. No `pip install`.
+纯标准库：`ctypes` 调 Win32，界面用 `tkinter`，不需要 `pip install`。
 
-![Main window](preview-main.png)
+![主界面](preview-main.png)
 
-## What it does
+## 功能
 
-- **Merges processes by program.** Eighteen `doubao.exe` become one row labelled "18 processes".
-- **Frees memory without closing anything.** Moves background working sets to disk (`EmptyWorkingSet`). Run as administrator to also purge the standby list.
-- **Auto-frees above a threshold** — 85% by default, 120 s cooldown.
-- **Closes known promo processes**: ads, tips, updaters, background helpers. Main applications are never in the rule list.
-- **Leaves running apps alone.** A program is skipped as a whole if any of its processes has a visible window.
+- **按程序合并进程**：十八个 `doubao.exe` 合成一行，标着「18 个进程」。
+- **释放内存，不关程序**：把后台进程的工作集移到硬盘（`EmptyWorkingSet`）。以管理员身份运行可额外清空待命列表。
+- **超过阈值自动释放**：默认 85%，冷却 120 秒。
+- **关闭已知推广进程**：广告、推送、更新、后台助手。软件主程序不在规则里。
+- **跳过正在使用的程序**：同一程序只要有一个进程带可见窗口，整组不动。
 
-## Requirements
+## 环境要求
 
-Windows 10 or 11, Python 3.9+. Nothing else.
+Windows 10 / 11，Python 3.9 及以上。不需要其他依赖。
 
-## Usage
+## 用法
 
 ```bat
-python  memory_guard.py --version      :: print version
-python  memory_guard.py --selftest     :: console self-check
-pythonw memory_guard.py                :: start in background
-python  make_icon.py                   :: generate icon.ico + PNG sizes
-python  install_shortcut.py            :: create desktop shortcut
+python  memory_guard.py --version      :: 打印版本
+python  memory_guard.py --selftest     :: 命令行自检
+pythonw memory_guard.py                :: 后台启动
+python  make_icon.py                   :: 生成图标
+python  install_shortcut.py            :: 创建桌面快捷方式
 ```
 
-Clicking the shortcut twice does not open a second window; it brings the running one to the front.
+重复点击快捷方式不会开第二个窗口，只会把已运行的窗口叫到前面。
 
-## Details window
+## 详细信息窗口
 
-![Details window](preview-advanced.png)
+![详细信息](preview-advanced.png)
 
-Two pages (Programs / Log) and three views (All / Blocked / Protected). Built-in protection rules can be disabled individually, and your own whitelist entries can be added.
+两个页面（程序 / 记录）、三个视图（全部程序 / 已拦截 / 已保护）。内置的保护规则可以逐条停用，也可以自己加白名单。
 
-## Files
+## 文件
 
-| File | |
+| 文件 | 说明 |
 | --- | --- |
-| `memory_guard.py` | everything, ~2500 lines |
-| `make_icon.py` | generates the icon set with GDI+ |
-| `install_shortcut.py` | desktop shortcut |
-| `launch.vbs` | silent launcher, no console window |
-| `使用说明.txt` | end-user guide (Chinese) |
+| `memory_guard.py` | 全部功能，约 2500 行 |
+| `make_icon.py` | 用 GDI+ 生成整套图标 |
+| `install_shortcut.py` | 桌面快捷方式 |
+| `launch.vbs` | 无控制台的启动器 |
+| `使用说明.txt` | 面向普通用户的说明 |
 
-## Limitations
+## 限制
 
-- The rule set is 36 static regexes. If a program you use is missing, you have to add a rule yourself; nothing is detected automatically.
-- Freeing memory only trims backing processes. Usage climbs back as programs touch their pages again. That is how Windows works, not a bug.
-- Layout was tuned at 150% scaling. Other DPI settings may look off.
-- No `.exe` build. Python is required.
+- 规则是 36 条静态正则，没收录的软件需要自己加，程序不会自动识别。
+- 释放内存只是把后台进程的工作集移走，程序再次访问会读回来。这是 Windows 的机制，不是失效。
+- 界面按 150% 缩放调的，其他 DPI 下排版可能有偏差。
+- 没有打包成 `.exe`，需要本机有 Python。
 
-## License
+## 许可
 
-MIT. See [LICENSE](LICENSE).
+MIT，见 [LICENSE](LICENSE)。
 
 ---
 
-[中文说明](README.zh-CN.md)
+[English](README.en.md)
