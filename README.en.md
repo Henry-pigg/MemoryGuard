@@ -1,5 +1,7 @@
 # Memory Guard
 
+[中文说明](README.md)
+
 A single-file memory monitor for Windows. It shows physical memory usage, frees working sets on demand, and closes the popup / promo processes that some desktop apps spawn in the background.
 
 Pure standard library: `ctypes` against Win32, `tkinter` for the UI. No `pip install`.
@@ -57,7 +59,3 @@ Two pages (Programs / Log) and three views (All / Blocked / Protected). Built-in
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
----
-
-[中文说明](README.md)

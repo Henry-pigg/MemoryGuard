@@ -1,9 +1,6 @@
 # 内存守护 Memory Guard
 
-
-
 [English](README.en.md)
-
 
 Windows 上的单文件内存监控工具。看物理内存占用、按需回收工作集、关掉部分桌面软件在后台开的推广和弹窗进程。
 
