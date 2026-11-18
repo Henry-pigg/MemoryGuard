@@ -881,6 +881,7 @@ if _gpdll is not None:
     _sig("GdipSetCompositingMode", [_VOIDP, ctypes.c_int])
     _sig("GdipCreatePath", [ctypes.c_int, _OUTP])
     _sig("GdipAddPathArc", [_VOIDP] + [_REAL] * 6)
+    _sig("GdipAddPathLine", [_VOIDP] + [_REAL] * 4)
     _sig("GdipAddPathRectangle", [_VOIDP] + [_REAL] * 4)
     _sig("GdipClosePathFigure", [_VOIDP])
     _sig("GdipDeletePath", [_VOIDP])
@@ -1007,6 +1008,21 @@ def _aa(w, h, bg, paint, key):
     return img
 
 
+def _aa_free(w, h, bg, paint):
+    """不走缓存的一张图。
+
+    走势曲线每秒都在变，塞进 LRU 只会把按钮、开关那些固定图挤出去，
+    所以曲线自己拿着引用，画完就换新的。
+    """
+    rows = _gp_rows(w, h, bg, paint)
+    if not rows:
+        return None
+    try:
+        return tk.PhotoImage(data=base64.b64encode(_png_rgb(w, h, rows)).decode("ascii"))
+    except Exception:
+        return None
+
+
 def _round_path(x, y, w, h, r):
     """四段 90° 圆弧拼出的圆角矩形，半径自动收敛到短边一半。"""
     if r * 2 > min(w, h):
@@ -1050,6 +1066,72 @@ def _stroke_round(gfx, x, y, w, h, r, color, width):
         _GPF["GdipDrawPath"](gfx, pen, path)
         _GPF["GdipDeletePen"](pen)
     _GPF["GdipDeletePath"](path)
+
+
+def _path_new():
+    p = ctypes.c_void_p()
+    if _GPF["GdipCreatePath"](0, ctypes.byref(p)) != 0:
+        return None
+    return p
+
+
+def _spark(gfx, w, h, vals, lo, hi, color, pen_w=1.6, slots=None):
+    """走势折线：极淡的面积 + 一条线 + 末端一个点。
+
+    vals 按时间从旧到新；y 轴范围由调用方给定（lo..hi），
+    这样同一条曲线在两张图之间可比——自动拉伸会把 3% 的波动画成悬崖。
+
+    slots 是完整窗口的格数。刚启动时只有几个点，按格数排到最右边，
+    曲线会随着时间从右往左长出来，而不是把 3 个点拉满整幅、假装已经采了 5 分钟。
+    """
+    n = len(vals)
+    if n < 2 or hi <= lo:
+        return
+    dot = max(1.6, pen_w * 1.5)
+    pad_x = dot + 1.5                       # 末端圆点要留出半径，否则被图边裁掉
+    pad_y = pen_w + 1.0
+    bottom = h - pad_y
+    top = pad_y
+    span = hi - lo
+    slots = max(n, int(slots or n))
+    x0 = pad_x + (w - 2 * pad_x) * (slots - n) / max(1, slots - 1)
+    step = (w - 2 * pad_x) / max(1, slots - 1)
+    pts = []
+    for i, v in enumerate(vals):
+        x = x0 + step * i
+        y = bottom - (min(max(v, lo), hi) - lo) / span * (bottom - top)
+        pts.append((x, y))
+
+    # 面积：从左下起、沿折线上行、落到右下闭合
+    area = _path_new()
+    if area is not None:
+        _GPF["GdipAddPathLine"](area, pts[0][0], bottom, pts[0][0], pts[0][1])
+        for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
+            _GPF["GdipAddPathLine"](area, xa, ya, xb, yb)
+        _GPF["GdipAddPathLine"](area, pts[-1][0], pts[-1][1], pts[-1][0], bottom)
+        _GPF["GdipClosePathFigure"](area)
+        brush = ctypes.c_void_p()
+        if _GPF["GdipCreateSolidFill"](_argb(color, 18),
+                                       ctypes.byref(brush)) == 0:
+            _GPF["GdipFillPath"](gfx, brush, area)
+            _GPF["GdipDeleteBrush"](brush)
+        _GPF["GdipDeletePath"](area)
+
+    line = _path_new()
+    if line is None:
+        return
+    for (xa, ya), (xb, yb) in zip(pts, pts[1:]):
+        _GPF["GdipAddPathLine"](line, xa, ya, xb, yb)
+    pen = ctypes.c_void_p()
+    if _GPF["GdipCreatePen1"](_argb(color, 215), float(pen_w), 2,
+                              ctypes.byref(pen)) == 0:
+        _GPF["GdipSetPenLineJoin"](pen, 2)
+        _GPF["GdipDrawPath"](gfx, pen, line)
+        _GPF["GdipDeletePen"](pen)
+    _GPF["GdipDeletePath"](line)
+
+    _fill_round(gfx, pts[-1][0] - dot, pts[-1][1] - dot, 2 * dot, 2 * dot,
+                dot, color)
 
 
 # ---------------------------------------------------------------- 圆角控件
@@ -1341,7 +1423,14 @@ class GuardApp:
         self.cfg = load_config()
         self.self_pid = os.getpid()
         self.q: queue.Queue = queue.Queue()
-        self.history = collections.deque([0.0] * 90, maxlen=90)
+        # 每秒一个点，300 个正好 5 分钟
+        self.history = collections.deque([0.0] * 300, maxlen=300)
+        self._hist_n = 0                  # 已经采到的真实样本数（前面都是占位 0）
+        self._groups: list[dict] = []     # 全部程序，未截断
+        self._priv_hist: dict = {}        # 程序名 -> deque[(时刻, MB)]
+        self.sort_mode = "size"           # size = 占用最大，grow = 涨得最快
+        self._sort_boxes: list = []
+        self._spark_img = None
         self.procs: list[dict] = []
         self.stats = {"killed": 0, "freed_mb": 0.0}
         self.logs = collections.deque(maxlen=600)
@@ -1455,6 +1544,7 @@ class GuardApp:
     def _on_tick(self, msg):
         self.mem = msg["mem"]
         self.history.append(self.mem["percent"])
+        self._hist_n = min(self._hist_n + 1, self.history.maxlen or 90)
         self.stats = msg.get("stats", self.stats)
         if msg.get("procs") is not None:
             self._all_procs = msg["procs"]
@@ -1465,10 +1555,46 @@ class GuardApp:
                 g = groups.setdefault(p["name"], {"name": p["name"], "priv": 0, "pids": []})
                 g["priv"] += p["priv"]
                 g["pids"].append(p["pid"])
-            self.procs = sorted(groups.values(), key=lambda g: g["priv"], reverse=True)[:4]
+            self._groups = list(groups.values())
+            self._track_growth(time.time())
+            self._resort()
         self.draw()
         if self.adv is not None:
             self._refresh_advanced()
+
+    GROW_WIN = 300.0        # 看最近 5 分钟
+    GROW_STEP = 30.0        # 每 30 秒记一个点
+
+    def _track_growth(self, now):
+        """给每个程序记一条内存时间线，算出窗口内的增量。
+
+        只存 14 个点、每个 30 秒，占不了多少内存；退出的程序立刻清掉。
+        """
+        hist = self._priv_hist
+        for g in self._groups:
+            d = hist.get(g["name"])
+            if d is None:
+                d = hist[g["name"]] = collections.deque(maxlen=14)
+            mb = g["priv"] / 1048576.0
+            if not d or now - d[-1][0] >= self.GROW_STEP:
+                d.append((now, mb))
+            while len(d) > 1 and now - d[0][0] > self.GROW_WIN:
+                d.popleft()
+            first = d[0] if d else None
+            # 观察不足 1 分钟不给结论，否则程序刚启动时的抖动会被读成「暴涨」
+            g["grow"] = (mb - first[1]) if (first and now - first[0] >= 60) else 0.0
+        alive = {g["name"] for g in self._groups}
+        for name in [k for k in hist if k not in alive]:
+            hist.pop(name, None)
+
+    def _resort(self):
+        if self.sort_mode == "grow":
+            rows = sorted(self._groups,
+                          key=lambda g: (g.get("grow", 0.0), g["priv"]),
+                          reverse=True)
+        else:
+            rows = sorted(self._groups, key=lambda g: g["priv"], reverse=True)
+        self.procs = rows[:4]
 
     def _tick_ui(self):
         self.draw()
@@ -1528,8 +1654,36 @@ class GuardApp:
         cv.create_text(self.sz(L) + wn - self.sz(3), self.sz(153), text="%",
                        anchor="w", fill=FAINT, font=self.fnum(17))
 
+        # ---------------- 最近 5 分钟走势：大数字右边那块空白正好放下
+        data = list(self.history)[-self._hist_n:] if self._hist_n >= 3 else []
+        if data:
+            lo, hi = min(data), max(data)
+            if hi - lo < 8:                 # 太平就撑到 8 个点，别把噪声画成悬崖
+                mid = (hi + lo) / 2.0
+                lo, hi = mid - 4, mid + 4
+            else:
+                lo, hi = lo - 1, hi + 1
+            lo, hi = max(0.0, lo), min(100.0, hi)
+            # 采样是每秒一个点，所以已采点数就是覆盖的秒数；不满 5 分钟就说实话
+            span_s = self._hist_n
+            label = ("最近 5 分钟" if span_s >= 300 else
+                     (f"最近 {span_s // 60} 分 {span_s % 60} 秒" if span_s >= 60
+                      else f"最近 {span_s} 秒"))
+            cv.create_text(self.sz(332), self.sz(72), text=label, anchor="w",
+                           fill=FAINT, font=self.fn(10))
+            px1, py1 = int(round(self.sz(332))), int(round(self.sz(78)))
+            px2, py2 = int(round(self.sz(R))), int(round(self.sz(162)))
+            color = RED if hot_pct else INK
+            img = _aa_free(px2 - px1, py2 - py1, BG,
+                           lambda g, bw=px2 - px1, bh=py2 - py1:
+                           _spark(g, bw, bh, data, lo, hi, color,
+                                  max(1.4, 1.1 * self.S)))
+            if img is not None:
+                self._spark_img = img
+                cv.create_image(px1, py1, image=img, anchor="nw")
+
         verdict = "内存充足" if pct < 70 else ("内存偏紧" if pct < 85 else "需要释放")
-        cv.create_text(self.sz(R), self.sz(128), text=verdict, anchor="e",
+        cv.create_text(self.sz(R), self.sz(190), text=verdict, anchor="e",
                        fill=RED if hot_pct else SUB, font=self.fn(11.5))
 
         cv.create_text(self.sz(L), self.sz(190),
@@ -1582,8 +1736,18 @@ class GuardApp:
         cv.create_line(self.sz(L), self.sz(340), self.sz(R), self.sz(340),
                        fill=HAIR_LINE, width=1)
 
-        cv.create_text(self.sz(L), self.sz(370), text="最占内存", anchor="w",
-                       fill=INK, font=self.fn(13, "bold"))
+        # 两个视角：现在谁占得多，和这五分钟谁在涨。后者才是找泄漏用的
+        x = L
+        self._sort_boxes = []
+        for key, text in (("size", "占用最大"), ("grow", "涨得最快")):
+            on = self.sort_mode == key
+            hot_ = f"sort:{key}" in self.hover_parts
+            fnt = self.fn(13, "bold") if on else self.fn(12)
+            cv.create_text(self.sz(x), self.sz(370), text=text, anchor="w",
+                           fill=INK if on else (SUB if hot_ else FAINT), font=fnt)
+            tw_ = tkfont.Font(font=fnt).measure(text) / self.S
+            self._sort_boxes.append((key, x - 4, x + tw_ + 4))
+            x += tw_ + 18
         all_hot = "all" in self.hover_parts
         cv.create_text(self.sz(R), self.sz(370), text="全部程序 ›", anchor="e",
                        fill=INK if all_hot else FAINT, font=self.fn(11.5), tags=("all",))
@@ -1652,6 +1816,13 @@ class GuardApp:
                            text=f"{n} 个进程", anchor="w", fill=FAINT,
                            font=self.fn(10.5))
 
+        # 增量放在大小左边，只在涨得够明显时才出现——每行都挂个 +0 MB 只是噪音
+        grow = p.get("grow", 0.0)
+        if grow >= 100:
+            cv.create_text(self.sz(520), self.sz(cy), text=f"↑ {_gb(grow)}",
+                           anchor="e", font=self.fnum(11),
+                           fill=RED if grow >= 500 else SUB)
+
         cv.create_text(self.sz(596), self.sz(cy), text=_gb(p["priv"] / 1024 / 1024),
                        anchor="e", fill=SUB, font=self.fnum(12.5))
 
@@ -1674,6 +1845,10 @@ class GuardApp:
             return "btn"
         if 580 <= x <= 672 and 356 <= y <= 384:
             return "all"
+        if 356 <= y <= 384:
+            for key, x1, x2 in self._sort_boxes:
+                if x1 <= x <= x2:
+                    return f"sort:{key}"
         if 44 <= x <= 676 and 394 <= y <= 578:
             idx = int((y - 394) // 46)
             if 0 <= idx < min(len(self.procs), 4):
@@ -1690,6 +1865,8 @@ class GuardApp:
         parts, row, chip = set(), -1, -1
         if hit in ("btn", "adv", "all", "toggle"):
             parts.add(hit)
+        elif hit.startswith("sort:"):
+            parts.add(hit)
         elif hit.startswith("chip:"):
             row = int(hit.split(":")[1])
             chip = row
@@ -1700,7 +1877,8 @@ class GuardApp:
                    or chip != self.hover_chip)
         self.hover_parts, self.hover_row, self.hover_chip = parts, row, chip
         if changed:
-            clickable = hit in ("btn", "adv", "all", "toggle") or hit.startswith("chip:")
+            clickable = (hit in ("btn", "adv", "all", "toggle")
+                         or hit.startswith("chip:") or hit.startswith("sort:"))
             self.cv.configure(cursor="hand2" if clickable else "arrow")
             self.draw()
 
@@ -1715,6 +1893,12 @@ class GuardApp:
             self._do_toggle()
         elif hit == "adv" or hit == "all":
             self.open_advanced()
+        elif hit.startswith("sort:"):
+            key = hit.split(":")[1]
+            if key != self.sort_mode:
+                self.sort_mode = key
+                self._resort()
+                self.draw()
         elif hit.startswith("chip:"):
             idx = int(hit.split(":")[1])
             if idx < len(self.procs):

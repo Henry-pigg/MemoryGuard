@@ -9,6 +9,7 @@ Pure standard library: `ctypes` against Win32, `tkinter` for the UI. No `pip ins
 ## What it does
 
 - **Merges processes by program.** Eighteen `doubao.exe` become one row labelled "18 processes".
+- **Trend, not just a snapshot.** A 5-minute line chart sits next to the big number, and the list can be sorted by size or by growth, with each row showing how much it gained in five minutes.
 - **Frees memory without closing anything.** Moves background working sets to disk (`EmptyWorkingSet`). Run as administrator to also purge the standby list.
 - **Auto-frees above a threshold** — 85% by default, 120 s cooldown.
 - **Closes known promo processes**: ads, tips, updaters, background helpers. Main applications are never in the rule list.
