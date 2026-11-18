@@ -1,148 +1,62 @@
-# 内存守护 Memory Guard
+# Memory Guard
 
-Windows 上的一个单文件内存监控工具：实时看着物理内存、一键回收工作集、顺手掐掉国产软件偷偷开的推广 / 弹窗进程。
+A single-file memory monitor for Windows. It shows physical memory usage, frees working sets on demand, and closes the popup / promo processes that some desktop apps spawn in the background.
 
-不装任何第三方包，`ctypes` 直呼 Win32 API，界面用 tkinter。
+Pure standard library: `ctypes` against Win32, `tkinter` for the UI. No `pip install`.
 
-![主界面](preview-main.png)
+![Main window](preview-main.png)
 
----
+## What it does
 
-## 它解决什么问题
+- **Merges processes by program.** Eighteen `doubao.exe` become one row labelled "18 processes".
+- **Frees memory without closing anything.** Moves background working sets to disk (`EmptyWorkingSet`). Run as administrator to also purge the standby list.
+- **Auto-frees above a threshold** — 85% by default, 120 s cooldown.
+- **Closes known promo processes**: ads, tips, updaters, background helpers. Main applications are never in the rule list.
+- **Leaves running apps alone.** A program is skipped as a whole if any of its processes has a visible window.
 
-16 GB 的笔记本，什么都没干内存就吃掉 90%，任务管理器里躺着一堆看不懂的进程；而真正占内存的那些软件（浏览器、IDE、聊天工具），一关就得重新打开。
+## Requirements
 
-所以这个工具只做三件小事：
+Windows 10 or 11, Python 3.9+. Nothing else.
 
-1. **看清楚** —— 把同名的几十个进程按程序合并成一行，谁占了几个 G 一目了然，不用在任务管理器里翻 200 行。
-2. **腾出来** —— 把后台进程的工作集搬到硬盘（`EmptyWorkingSet`），物理内存立刻回来一块，程序不退出、状态不丢。
-3. **少打扰** —— 那些弹广告、弹更新、弹"今日热点"的附属进程，冒头就关掉，主程序照常用。
-
----
-
-## 界面
-
-主窗口只有一个数字、一条横线、一个按钮。删除了一切装饰之后，剩下的就是真正要看的东西：占用百分比、已用 / 总量、四个最占内存的程序。平时全灰阶，超过 85% 才变砖红。右下角是弹窗拦截的开关。
-
-详细信息窗口分「程序 / 记录」两页，程序页再分「全部程序 / 已拦截 / 已保护」三视图：
-
-![详细信息](preview-advanced.png)
-
----
-
-## 快速开始
-
-需要 **Windows 10 / 11** + **Python 3.9 及以上**（不需要任何 pip 包）。
+## Usage
 
 ```bat
-:: 1. 直接运行（会留一个控制台窗口，方便看报错）
-python memory_guard.py
-
-:: 2. 正式使用：无控制台，后台常驻
-pythonw memory_guard.py
-
-:: 3. 不想自己敲：生成图标 + 桌面快捷方式
-python make_icon.py
-python install_shortcut.py
-
-:: 4. 命令行自检（不弹窗，打印内存与规则命中情况）
-python memory_guard.py --selftest
-
-:: 5. 看版本号
-python memory_guard.py --version
+python  memory_guard.py --version      :: print version
+python  memory_guard.py --selftest     :: console self-check
+pythonw memory_guard.py                :: start in background
+python  make_icon.py                   :: generate icon.ico + PNG sizes
+python  install_shortcut.py            :: create desktop shortcut
 ```
 
-`pythonw` 版启动后没有窗口，从任务栏图标或桌面快捷方式打开界面。**再点一次不会开第二个窗口**，只会把已经跑着的那个叫到最前面（命名互斥体实现）。
+Clicking the shortcut twice does not open a second window; it brings the running one to the front.
 
-> 想让它能清空系统待命内存（回收效果更明显），用管理员身份运行。普通权限下只回收各进程工作集。
+## Details window
 
----
+![Details window](preview-advanced.png)
 
-## 文件说明
+Two pages (Programs / Log) and three views (All / Blocked / Protected). Built-in protection rules can be disabled individually, and your own whitelist entries can be added.
 
-| 文件 | 作用 |
+## Files
+
+| File | |
 | --- | --- |
-| `memory_guard.py` | 全部功能，约 2500 行，单文件 |
-| `make_icon.py` | 生成 `icon.ico` 与 13 档 PNG（GDI+ 矢量绘制） |
-| `install_shortcut.py` | 在桌面创建快捷方式，指向 `pythonw.exe` |
-| `launch.vbs` | 无黑窗启动器（不想装快捷方式时用） |
-| `icon.ico` / `icon-*.png` | 应用图标，13 个尺寸档：16/20/24/28/32/36/40/48/64/72/96/128/256 |
-| `使用说明.txt` | 写给非技术用户的完整说明 |
-| `config.json` | 用户配置，首次运行自动生成 |
-| `memory_guard.log` | 运行日志，可在「详细信息 → 记录」里看 |
+| `memory_guard.py` | everything, ~2500 lines |
+| `make_icon.py` | generates the icon set with GDI+ |
+| `install_shortcut.py` | desktop shortcut |
+| `launch.vbs` | silent launcher, no console window |
+| `使用说明.txt` | end-user guide (Chinese) |
 
-`config.json`、`memory_guard.log`、`__pycache__` 都已在 `.gitignore` 里，属于运行时产物。
+## Limitations
 
----
+- The rule set is 36 static regexes. If a program you use is missing, you have to add a rule yourself; nothing is detected automatically.
+- Freeing memory only trims backing processes. Usage climbs back as programs touch their pages again. That is how Windows works, not a bug.
+- Layout was tuned at 150% scaling. Other DPI settings may look off.
+- No `.exe` build. Python is required.
 
-## 拦截规则
+## License
 
-内置 **36 条**规则，覆盖芒果TV、腾讯视频 / 爱奇艺 / 优酷 / 暴风、迅雷、百度网盘、360、腾讯管家、金山毒霸、2345、鲁大师、驱动精灵、搜狗输入法、WPS 等常见国产软件的推广组件。
-
-每条规则长这样：
-
-```python
-{"field": "name", "pattern": r"^mangotv[\w\-]*(update|push|mini|ad|dsp|tips|popup|helper|daemon|news|upgrade)",
- "note": "芒果TV 广告 / 更新 / 迷你页"}
-```
-
-`field` 可以是 `name`（可执行文件名）或 `title`（窗口标题），`pattern` 是正则。**只收录"推广 / 弹窗 / 更新 / 后台助手"这类附属进程，绝不收录软件主程序**——芒果TV 照样能看，只是它偷偷开的推广进程活不下来。
-
-在「详细信息 → 已拦截」里可以逐条停用 / 启用，也能自己加规则（双击某条临时停用）。
+MIT. See [LICENSE](LICENSE).
 
 ---
 
-## 安全设计
-
-自动关进程的工具最怕误杀，所以这里叠了几层锁：
-
-**四层保护，统一收口在一个函数里**（`protect_reason()`）：
-
-1. 67 个系统关键进程名单（`csrss`、`winlogon`、`services`、`dwm`、`explorer` 白名单…）
-2. 受保护目录（`C:\Windows\`、WindowsApps、Defender、Common Files…）下的任何进程
-3. 微软签名的可执行文件
-4. Session 0 服务进程
-
-命中任意一条就永远不碰，界面上显示为"受保护"并写明理由。
-
-**回收内存时跳过正在用的程序**：不是跳过"带窗口的进程"，而是按**可执行文件路径整组跳过**——豆包开 17 个进程只有 1 个有窗口，只跳那一个的话，另外 16 个的工作集一样会被清空，表现就是整个软件卡死。实测跳过 55 个进程 / 11 个程序，仍然回收 149 个后台进程。
-
-**结束进程要点两下**：第一次点变红字「确定？」，3 秒内再点才真结束。
-
-**默认不自动关**：`observe_only` 和 `auto_kill` 分开，先看观察模式下它想关谁，觉得没问题再打开。
-
----
-
-## 一些实现细节
-
-**抗锯齿**：tkinter 的 Canvas 底层是 GDI，多边形和椭圆全是硬边，胶囊按钮的圆角怎么调都会露台阶。所以圆角形状不走 Canvas，改成让 GDI+ 画进内存位图（`SmoothingModeAntiAlias` + `PixelOffsetModeHighQuality` + 四段 `GdipAddPathArc`），再当图片贴回画布。代价是每帧 0.4~0.9 ms，有 LRU 缓存时是 0。
-
-**图标**：`make_icon.py` 用 GDI+ 路径绘制，13 个尺寸档每档按 4 倍矢量重绘后 bicubic 缩到目标；≤128px 输出 32bpp DIB 帧而不是 PNG 帧（ICO 规范里 PNG 帧主要是给 256 准备的，小尺寸走 DIB 路径才不会被系统二次缩放）。150% 缩放下任务栏要 36px、桌面要 72px，缺这两个档位就是锯齿的来源。
-
-**DPI**：进程声明 Per-Monitor DPI 感知，所有尺寸乘以 `LOGPIXELSX/96`，坐标取整到设备像素，直边不会落在半像素上铺一层灰。
-
-**内存回收**：`EmptyWorkingSet` 逐进程搬工作集 + `NtSetSystemInformation(SystemMemoryListInformation)` 清空待命列表（后者需要管理员）。
-
----
-
-## 常见问题
-
-**会不会误杀我正在用的软件？**
-不会。规则只针对附属的推广 / 弹窗进程，不含主程序；四种系统保护对全部进程生效；结束操作还要点两下确认。
-
-**为什么释放完内存，过一会儿又回来了？**
-`EmptyWorkingSet` 只是把工作集搬到硬盘，程序一访问又读回来。这是操作系统的正常行为，不是工具失效。它能救急（比如开游戏前腾地方），但不能替代加内存条。
-
-**点了释放，某个软件变卡了？**
-说明它被清得太狠。去「详细信息 → 已保护」把它的安装目录加进保护名单，之后整组都不会被动。
-
-**支持 Windows 7 吗？**
-没测过。用到的 API（`NtSetSystemInformation`、DPI 感知、GDI+）在 Win7 上大多存在，但界面按 Win11 的字体与缩放调的，Win7 上大概率不好看。
-
----
-
-## 许可
-
-MIT。随便用、随便改，出事别找我。
-
-规则库欢迎补充——如果你发现某个软件的推广进程还没被收录，加一条规则提 PR 就行。
+[中文说明](README.zh-CN.md)
