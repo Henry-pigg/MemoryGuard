@@ -1,0 +1,9 @@
+# 运行时产物
+memory_guard.log
+config.json
+__pycache__/
+*.pyc
+
+# 临时脚本与截图
+_*.py
+_*.png
