@@ -1,5 +1,10 @@
 # 内存守护 Memory Guard
 
+
+
+[English](README.en.md)
+
+
 Windows 上的单文件内存监控工具。看物理内存占用、按需回收工作集、关掉部分桌面软件在后台开的推广和弹窗进程。
 
 纯标准库：`ctypes` 调 Win32，界面用 `tkinter`，不需要 `pip install`。
@@ -56,7 +61,3 @@ python  install_shortcut.py            :: 创建桌面快捷方式
 ## 许可
 
 MIT，见 [LICENSE](LICENSE)。
-
----
-
-[English](README.en.md)
