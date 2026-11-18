@@ -9,8 +9,9 @@
 EmptyWorkingSet + NtSetSystemInformation），UI 用 tkinter，无需安装任何第三方包。
 
 用法：
-    pythonw.exe memory_guard.py        后台启动 GUI
-    python  memory_guard.py --selftest 命令行自检
+    pythonw.exe memory_guard.py          后台启动 GUI
+    python  memory_guard.py --selftest   命令行自检
+    python  memory_guard.py --version    打印版本号
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(APP_DIR, "config.json")
 LOG_PATH = os.path.join(APP_DIR, "memory_guard.log")
 APP_TITLE = "内存守护 · Memory Guard"
+VERSION = "0.9.0"
 SINGLE_PORT = 49731
 
 # ---------------------------------------------------------------- Win32 常量
@@ -1374,7 +1376,7 @@ class GuardApp:
         self.monitor = Monitor(self.q, self.cfg, self.self_pid)
         self.monitor.start()
 
-        self.add_log("ok", "内存守护已启动，正在为你守护")
+        self.add_log("ok", f"内存守护 v{VERSION} 已启动，正在为你守护")
         self.root.after(300, self.cv.focus_set)
         self.root.after(80, self._pump)
         self.root.after(1000, self._tick_ui)
@@ -2438,6 +2440,7 @@ def _focus_server(srv, wake):
 
 
 def selftest():
+    print(f"{APP_TITLE} v{VERSION}  ({sys.version.split()[0]})")
     m = mem_info()
     print(f"内存：{m['used'] / 1024 ** 3:.1f}/{m['total'] / 1024 ** 3:.1f} GB  占用 {m['percent']}%")
     procs = snapshot()
@@ -2464,6 +2467,9 @@ def _instance_mutex():
 
 
 def main():
+    if "--version" in sys.argv or "-V" in sys.argv:
+        print(f"{APP_TITLE} v{VERSION}")
+        return
     if "--selftest" in sys.argv:
         selftest()
         return

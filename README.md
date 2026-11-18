@@ -47,6 +47,9 @@ python install_shortcut.py
 
 :: 4. 命令行自检（不弹窗，打印内存与规则命中情况）
 python memory_guard.py --selftest
+
+:: 5. 看版本号
+python memory_guard.py --version
 ```
 
 `pythonw` 版启动后没有窗口，从任务栏图标或桌面快捷方式打开界面。**再点一次不会开第二个窗口**，只会把已经跑着的那个叫到最前面（命名互斥体实现）。
